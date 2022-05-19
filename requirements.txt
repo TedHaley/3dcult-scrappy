@@ -8,3 +8,4 @@ urllib3==1.26.9
 xmltojson
 utils
 pymongo
+boto3

@@ -7,8 +7,21 @@ import datetime
 import logging
 import hashlib
 import os
+import boto3
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+
+s3 = boto3.client('s3')
+bucket = '3dcult-json-records'
+
+if '/ted/' in os.environ.get('PATH'):
+    ENV = 'local'
+else:
+    ENV = 'lambda'
+
+
+def lambda_handler(event, context):
+    iterate_pages()
 
 
 def error_handler(func):
@@ -17,6 +30,7 @@ def error_handler(func):
             return func(*args, **kwargs)
         except Exception as e:
             raise e
+
     return inner
 
 
@@ -95,8 +109,7 @@ def record_name(link):
     encoded_link = link.encode('utf-8')
     hash_object = hashlib.md5(encoded_link)
     hash_str = hash_object.hexdigest()
-    year_month = datetime.datetime.now().strftime("%Y_%m")
-    file_name = f'{hash_str}_{year_month}.json'
+    file_name = f'{hash_str}.json'
     return file_name
 
 
@@ -105,6 +118,12 @@ def check_record_exists(record_path):
         logging.info(f'{record_path} already exists. Skipping...')
         return True
     return False
+
+
+def save_record_s3(record_dict, record_path):
+    logging.info(f'Saving record: {record_path}')
+    byte_json = bytes(json.dumps(record_dict, default=json_util.default).encode('utf-8'))
+    s3.put_object(Bucket=bucket, Key=record_path, Body=byte_json)
 
 
 def save_record(record_dict, record_path):
@@ -118,10 +137,16 @@ def iterate_items_on_page(page_url):
     item_links = get_most_liked_links(page_url)
     for link in item_links:
         name = record_name(link=link)
-        record_path = f'./data/{name}'
-        if not check_record_exists(record_path):
+
+        if ENV == 'local':
+            record_path = f'./data/{name}'
+            if not check_record_exists(record_path):
+                record = link_data(link=link)
+                save_record(record_dict=record, record_path=record_path)
+        else:
+            record_path = f'/data/{name}'
             record = link_data(link=link)
-            save_record(record_dict=record, record_path=record_path)
+            save_record_s3(record_dict=record, record_path=record_path)
 
 
 def verify_page(url):
@@ -141,7 +166,3 @@ def iterate_pages():
             page_number += 1
             continue
         break
-
-
-if __name__ == "__main__":
-    iterate_pages()
